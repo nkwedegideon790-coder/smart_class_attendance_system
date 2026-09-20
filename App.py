@@ -1,56 +1,127 @@
+import datetime
 import cv2
-from ultralytics import YOLO
-import supervision as sv
-import openvino as ov
 import numpy as np
-from pathlib import Path
-from insightface.app import FaceAnalysis
-from insightface.utils import face_align
+import supervision as sv
+import streamlit as st
+import tempfile
+from models import load_models, get_embedding_ov
+from Database import init_db, get_all_students_for_matching
+
+st.set_page_config(page_title="Smart Attendance System", layout="wide")
+st.title("Smart Attendance System")
+
+face_app, rec_model, rec_output = load_models()
+conn = init_db()
+known_students = get_all_students_for_matching(conn)  # [(id, name, embedding), ...]
+
+marked_present = set()
+track_to_student = {}      # track_id -> (student_id, name)
+present_students = {}      # student_id -> {"name": name, "image": crop}
+FRAME_SKIP = 5
+frame_count = 0
 
 
-def convert_to_ir(onnx_path: str, ir_path: str):
-    onnx_path, ir_path = Path(onnx_path), Path(ir_path)
-    if ir_path.exists():
-        return ir_path
-    model = ov.convert_model(str(onnx_path))
-    ov.save_model(model, str(ir_path))
-    return ir_path
+def match_student(embedding, known_students, threshold=0.5):
+    best_match, best_score = None, -1
+    for student_id, name, known_emb in known_students:
+        score = np.dot(embedding, known_emb)
+        if score > best_score:
+            best_match, best_score = (student_id, name), score
+    if best_score >= threshold:
+        return best_match, best_score
+    return None, best_score
 
 
-def pick_device(core: ov.Core, prefer=("GPU", "NPU", "CPU")) -> str:
-    available = core.available_devices
-    for dev in prefer:
-        if any(d.startswith(dev) for d in available):
-            return next(d for d in available if d.startswith(dev))
-    return "CPU"
+uploaded_file = st.file_uploader("Upload video", type=["mp4", "mov", "avi"])
 
+if uploaded_file is not None:
+    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    tfile.write(uploaded_file.read())
 
-core = ov.Core()
-print("Available devices:", core.available_devices)
-device = pick_device(core)
-print(f"Using device: {device}")
+    cap = cv2.VideoCapture(tfile.name)
+    tracker = sv.ByteTrack()
 
-# --- YOLO (person detection) ---
-yolo_ir = convert_to_ir("yolov8n.onnx", "yolov8n.xml")
-yolo_model = core.compile_model(str(yolo_ir), device, config={"PERFORMANCE_HINT": "LATENCY"})
-yolo_output = yolo_model.output(0)
+    left_col, right_col = st.columns([2, 1])
+    with left_col:
+        st.subheader("Live feed")
+        frame_placeholder = st.empty()
+    with right_col:
+        st.subheader("Attendance")
+        table_placeholder = st.empty()
 
-# --- Locate InsightFace's downloaded ONNX models ---
-# Trigger the download once first if this folder doesn't exist yet:
-#   FaceAnalysis(name="buffalo_l").prepare(ctx_id=-1)
-insightface_home = Path.home() / ".insightface" / "models" / "buffalo_l"
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-det_onnx = next(insightface_home.glob("det_*.onnx"))   # SCRFD detector
-rec_onnx = next(insightface_home.glob("w600k_r50.onnx"))  # ArcFace recognizer
+        frame_count += 1
 
-# --- SCRFD (face detection) via OpenVINO ---
-det_ir = convert_to_ir(str(det_onnx), str(insightface_home / f"{det_onnx.stem}.xml"))
-det_model = core.compile_model(str(det_ir), device, config={"PERFORMANCE_HINT": "LATENCY"})
+        if frame_count % FRAME_SKIP == 0:
+            faces = face_app.get(frame)
 
-# --- ArcFace (recognition) via OpenVINO ---
-rec_ir = convert_to_ir(str(rec_onnx), str(insightface_home / "w600k_r50.xml"))
-rec_model = core.compile_model(str(rec_ir), device, config={"PERFORMANCE_HINT": "LATENCY"})
-rec_output = rec_model.output(0)
+            if len(faces) > 0:
+                xyxy = np.array([f.bbox for f in faces], dtype=float)
+                confidence = np.array([f.det_score for f in faces], dtype=float)
+                class_id = np.zeros(len(faces), dtype=int)
+                detections = sv.Detections(xyxy=xyxy, confidence=confidence, class_id=class_id)
+            else:
+                detections = sv.Detections.empty()
 
-print(f"SCRFD + ArcFace compiled on {device}")
+            tracked = tracker.update_with_detections(detections)
 
+            for i in range(len(tracked)):
+                x1, y1, x2, y2 = tracked.xyxy[i].astype(int)
+                x1, y1 = max(0, x1), max(0, y1)
+                track_id = tracked.tracker_id[i]
+
+                crop = frame[y1:y2, x1:x2]
+                if crop.size == 0:
+                    continue
+
+                if track_id in track_to_student:
+                    student_id, name = track_to_student[track_id]
+                else:
+                    embedding = get_embedding_ov(rec_model, rec_output, crop)
+                    match, score = match_student(embedding, known_students)
+                    if match:
+                        student_id, name = match
+                        track_to_student[track_id] = (student_id, name)
+                    else:
+                        student_id, name = None, "Unknown"
+
+                if student_id is not None:
+                    color, label = (0, 200, 0), name
+
+                    if student_id not in marked_present:
+                        marked_present.add(student_id)
+                        present_students[student_id] = {"name": name, "image": crop.copy()}
+
+                        now = datetime.datetime.now()
+                        conn.execute(
+                            "INSERT INTO attendance (student_id, date, time, status) VALUES (?, ?, ?, ?)",
+                            (student_id, now.date().isoformat(), now.time().isoformat(timespec="seconds"), "Present")
+                        )
+                        conn.commit()
+                else:
+                    color, label = (0, 0, 255), "Unknown"
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_placeholder.image(frame_rgb, channels="RGB")
+
+            with table_placeholder.container():
+                st.write(f"**Present ({len(present_students)})**")
+                cols_per_row = 3
+                items = list(present_students.items())
+                for i in range(0, len(items), cols_per_row):
+                    row_items = items[i:i + cols_per_row]
+                    cols = st.columns(cols_per_row)
+                    for col, (student_id, info) in zip(cols, row_items):
+                        with col:
+                            img_rgb = cv2.cvtColor(info["image"], cv2.COLOR_BGR2RGB)
+                            st.image(img_rgb, caption=info["name"], width=100)
+
+    cap.release()
+    st.success("Done processing video.")
