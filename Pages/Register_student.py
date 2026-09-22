@@ -10,16 +10,22 @@ st.title("Register Students")
 face_app, rec_model, rec_output = load_models()
 conn = init_db()
 
+# counter used to force-reset widgets by changing their key each time
+if "form_reset_counter" not in st.session_state:
+    st.session_state.form_reset_counter = 0
+
+reset_key = st.session_state.form_reset_counter
+
 # ---------- Add new student ----------
 st.subheader("Add a new student")
 
-name = st.text_input("Student name")
-capture_mode = st.radio("How do you want to add photos?", ["Webcam", "Upload photo(s)"], horizontal=True)
+name = st.text_input("Student name", key=f"name_{reset_key}")
+capture_mode = st.radio("How do you want to add photos?", ["Webcam", "Upload photo(s)"], horizontal=True, key=f"capture_mode_{reset_key}")
 
 captured = []  # list of (crop, embedding) pairs collected this session
 
 if capture_mode == "Webcam":
-    img_file = st.camera_input("Take a photo")
+    img_file = st.camera_input("Take a photo", key=f"camera_{reset_key}")
     if img_file is not None:
         file_bytes = np.frombuffer(img_file.getvalue(), dtype=np.uint8)
         frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
@@ -36,7 +42,7 @@ if capture_mode == "Webcam":
 
 else:
     uploaded = st.file_uploader(
-        "Upload one or more clear photos", type=["jpg", "jpeg", "png"], accept_multiple_files=True
+        "Upload one or more clear photos", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=f"upload_{reset_key}"
     )
     if uploaded:
         cols = st.columns(min(len(uploaded), 4))
