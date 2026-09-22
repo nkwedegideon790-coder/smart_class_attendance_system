@@ -6,6 +6,10 @@ import streamlit as st
 import tempfile
 from models import load_models, get_embedding_ov
 from Database import init_db, get_all_students_for_matching
+from analytics import (
+    get_attendance_summary, get_attendance_rate_by_student,
+    get_frequent_absentees, get_attendance_trend
+)
 
 st.set_page_config(page_title="Smart Attendance System", layout="wide")
 st.title("Smart Attendance System")
@@ -83,6 +87,7 @@ if uploaded_file is not None:
                 else:
                     embedding = get_embedding_ov(rec_model, rec_output, crop)
                     match, score = match_student(embedding, known_students)
+                    print(f"Loaded {len(known_students)} known students for matching")
                     if match:
                         student_id, name = match
                         track_to_student[track_id] = (student_id, name)
@@ -125,3 +130,30 @@ if uploaded_file is not None:
 
     cap.release()
     st.success("Done processing video.")
+
+    st.write("Attendance Analytics")
+
+    summary = get_attendance_summary(conn)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Present today", summary["present"])
+    col2.metric("Absent today", summary["absent"])
+    col3.metric("Attendance rate", f"{summary['attendance_rate']}%")
+
+    st.subheader("Attendance trend")
+    trend = get_attendance_trend(conn)
+    if trend:
+        st.line_chart({d["date"]: d["rate"] for d in trend})
+    else:
+        st.write("No attendance data yet.")
+
+    st.subheader("Frequent absentees (below 75%, last 30 days)")
+    absentees = get_frequent_absentees(conn)
+    if absentees:
+        for a in absentees:
+            st.write(f"**{a['name']}** — {a['attendance_rate']}% ({a['days_present']}/{a['total_sessions']} sessions)")
+    else:
+        st.write("No students below the threshold.")
+
+    st.subheader("Full class breakdown")
+    rates = get_attendance_rate_by_student(conn)
+    st.dataframe(rates)
