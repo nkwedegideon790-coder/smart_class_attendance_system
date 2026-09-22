@@ -25,7 +25,7 @@ FRAME_SKIP = 5
 frame_count = 0
 
 
-def match_student(embedding, known_students, threshold=0.5):
+def match_student(embedding, known_students, threshold=0.6):
     best_match, best_score = None, -1
     for student_id, name, known_emb in known_students:
         score = np.dot(embedding, known_emb)
