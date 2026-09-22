@@ -1,11 +1,13 @@
 import sqlite3
 import cv2
 import numpy as np
+import streamlit as st
 
-
+@st.cache_resource
 def init_db(db_path="attendance.db"):
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13,6 +15,7 @@ def init_db(db_path="attendance.db"):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,6 +26,18 @@ def init_db(db_path="attendance.db"):
             FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
         )
     """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            status TEXT NOT NULL,
+            FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+        )
+    """)
+
     conn.commit()
     return conn
 

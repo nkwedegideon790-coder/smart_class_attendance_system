@@ -3,8 +3,9 @@ import numpy as np
 import openvino as ov
 from pathlib import Path
 from insightface.app import FaceAnalysis
+import streamlit as st
 
-
+@st.cache_resource
 def load_models():
     core = ov.Core()
 
