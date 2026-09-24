@@ -36,7 +36,14 @@ def match_student(embedding, known_students, threshold=0.6):
     if best_score >= threshold:
         return best_match, best_score
     return None, best_score
-
+def make_square(img: np.ndarray, size: int = 120) -> np.ndarray:
+    h, w = img.shape[:2]
+    # crop to square first (center crop), then resize
+    min_dim = min(h, w)
+    top = (h - min_dim) // 2
+    left = (w - min_dim) // 2
+    cropped = img[top:top + min_dim, left:left + min_dim]
+    return cv2.resize(cropped, (size, size))
 # Streamlit file uploader for video input
 uploaded_file = st.file_uploader("Upload video", type=["mp4", "mov", "avi"])
 if uploaded_file is not None:
@@ -123,11 +130,12 @@ if uploaded_file is not None:
                 items = list(present_students.items())
                 for i in range(0, len(items), cols_per_row):
                     row_items = items[i:i + cols_per_row]
-                    cols = st.columns(cols_per_row)
+                    cols = st.columns(cols_per_row, gap="large")
                     for col, (student_id, info) in zip(cols, row_items):
                         with col:
-                            img_rgb = cv2.cvtColor(info["image"], cv2.COLOR_BGR2RGB)
-                            st.image(img_rgb, caption=info["name"], width=100)
+                           img_rgb = cv2.cvtColor(make_square(info["image"], size=100), cv2.COLOR_BGR2RGB)
+                           st.image(img_rgb, caption=info["name"], width=100)
+                    st.write("")
 
     cap.release()
     st.success("Done processing video.")
