@@ -68,6 +68,7 @@ if st.button("Save Student", type="primary", disabled=(not name or not captured)
     for crop, embedding in captured:
         add_image(conn, student_id, crop, embedding)
     st.success(f"Registered {name} with {len(captured)} photo(s)")
+    st.session_state.form_reset_counter += 1   # <-- this line was missing
     st.rerun()
 
 st.divider()

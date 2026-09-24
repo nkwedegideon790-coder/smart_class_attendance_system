@@ -11,9 +11,11 @@ from analytics import (
     get_frequent_absentees, get_attendance_trend
 )
 
+# Streamlit page configuration
 st.set_page_config(page_title="Smart Attendance System", layout="wide")
 st.title("Smart Attendance System")
 
+# Load models and initialize database
 face_app, rec_model, rec_output = load_models()
 conn = init_db()
 known_students = get_all_students_for_matching(conn)  # [(id, name, embedding), ...]
@@ -24,7 +26,7 @@ present_students = {}      # student_id -> {"name": name, "image": crop}
 FRAME_SKIP = 5
 frame_count = 0
 
-
+# Function to match a student's embedding with known students
 def match_student(embedding, known_students, threshold=0.6):
     best_match, best_score = None, -1
     for student_id, name, known_emb in known_students:
@@ -35,16 +37,15 @@ def match_student(embedding, known_students, threshold=0.6):
         return best_match, best_score
     return None, best_score
 
-
+# Streamlit file uploader for video input
 uploaded_file = st.file_uploader("Upload video", type=["mp4", "mov", "avi"])
-
 if uploaded_file is not None:
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     tfile.write(uploaded_file.read())
 
     cap = cv2.VideoCapture(tfile.name)
     tracker = sv.ByteTrack()
-
+    # 
     left_col, right_col = st.columns([2, 1])
     with left_col:
         st.subheader("Live feed")
@@ -52,14 +53,14 @@ if uploaded_file is not None:
     with right_col:
         st.subheader("Attendance")
         table_placeholder = st.empty()
-
+    #  
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
         frame_count += 1
-
+        # 
         if frame_count % FRAME_SKIP == 0:
             faces = face_app.get(frame)
 
@@ -131,29 +132,29 @@ if uploaded_file is not None:
     cap.release()
     st.success("Done processing video.")
 
-    st.write("Attendance Analytics")
+st.write("Attendance Analytics")
 
-    summary = get_attendance_summary(conn)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Present today", summary["present"])
-    col2.metric("Absent today", summary["absent"])
-    col3.metric("Attendance rate", f"{summary['attendance_rate']}%")
+summary = get_attendance_summary(conn)
+col1, col2, col3 = st.columns(3)
+col1.metric("Present today", summary["present"])
+col2.metric("Absent today", summary["absent"])
+col3.metric("Attendance rate", f"{summary['attendance_rate']}%")
 
-    st.subheader("Attendance trend")
-    trend = get_attendance_trend(conn)
-    if trend:
-        st.line_chart({d["date"]: d["rate"] for d in trend})
-    else:
-        st.write("No attendance data yet.")
+st.subheader("Attendance trend")
+trend = get_attendance_trend(conn)
+if trend:
+    st.line_chart({d["date"]: d["rate"] for d in trend})
+else:
+    st.write("No attendance data yet.")
 
-    st.subheader("Frequent absentees (below 75%, last 30 days)")
-    absentees = get_frequent_absentees(conn)
-    if absentees:
-        for a in absentees:
-            st.write(f"**{a['name']}** — {a['attendance_rate']}% ({a['days_present']}/{a['total_sessions']} sessions)")
-    else:
-        st.write("No students below the threshold.")
+st.subheader("Frequent absentees (below 75%, last 30 days)")
+absentees = get_frequent_absentees(conn)
+if absentees:
+    for a in absentees:
+        st.write(f"**{a['name']}** — {a['attendance_rate']}% ({a['days_present']}/{a['total_sessions']} sessions)")
+else:
+    st.write("No students below the threshold.")
 
-    st.subheader("Full class breakdown")
-    rates = get_attendance_rate_by_student(conn)
-    st.dataframe(rates)
+st.subheader("Full class breakdown")
+rates = get_attendance_rate_by_student(conn)
+st.dataframe(rates)
