@@ -79,3 +79,41 @@ def get_attendance_trend(conn, since_days: int = 14):
         {"date": d, "rate": round(count / total_students * 100, 1) if total_students else 0}
         for d, count in rows
     ]
+
+def get_session_history(conn):
+    rows = conn.execute("""
+        SELECT date,
+               COUNT(DISTINCT student_id) as present_count,
+               MIN(time) as first_marked,
+               MAX(time) as last_marked
+        FROM attendance
+        WHERE status = 'Present'
+        GROUP BY date
+        ORDER BY date DESC
+    """).fetchall()
+
+    total_students = conn.execute("SELECT COUNT(*) FROM students").fetchone()[0]
+
+    return [
+        {
+            "date": date,
+            "present_count": present_count,
+            "total_students": total_students,
+            "attendance_rate": round(present_count / total_students * 100, 1) if total_students else 0,
+            "first_marked": first_marked,
+            "last_marked": last_marked,
+        }
+        for date, present_count, first_marked, last_marked in rows
+    ]
+
+
+def get_session_detail(conn, session_date: str):
+    """Every student marked present on a specific date, with their time."""
+    rows = conn.execute("""
+        SELECT s.name, a.time
+        FROM attendance a
+        JOIN students s ON s.id = a.student_id
+        WHERE a.date = ? AND a.status = 'Present'
+        ORDER BY a.time ASC
+    """, (session_date,)).fetchall()
+    return rows
