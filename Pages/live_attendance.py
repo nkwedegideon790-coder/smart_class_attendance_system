@@ -8,7 +8,7 @@ from models import load_models, get_embedding_ov
 from Database import init_db, get_all_students_for_matching
 from analytics import (
     get_attendance_summary, get_attendance_rate_by_student,
-    get_frequent_absentees, get_attendance_trend
+    get_frequent_absentees, get_attendance_trend,get_session_history, get_session_detail 
 )
 
 # Streamlit page configuration
@@ -133,6 +133,23 @@ if uploaded_file is not None:
     st.success("Done processing video.")
 
 st.write("Attendance Analytics")
+
+st.subheader("Session history")
+
+sessions = get_session_history(conn)
+
+if not sessions:
+    st.write("No sessions recorded yet.")
+else:
+    for s in sessions:
+        with st.expander(
+            f"{s['date']} — {s['present_count']}/{s['total_students']} present "
+            f"({s['attendance_rate']}%)"
+        ):
+            st.write(f"First marked: {s['first_marked']} · Last marked: {s['last_marked']}")
+            detail = get_session_detail(conn, s["date"])
+            for name, time in detail:
+                st.write(f"- {name} — {time}")
 
 summary = get_attendance_summary(conn)
 col1, col2, col3 = st.columns(3)
