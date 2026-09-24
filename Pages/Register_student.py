@@ -10,9 +10,10 @@ st.title("Register Students")
 face_app, rec_model, rec_output = load_models()
 conn = init_db()
 
-# counter used to force-reset widgets by changing their key each time
 if "form_reset_counter" not in st.session_state:
     st.session_state.form_reset_counter = 0
+if "confirm_duplicate" not in st.session_state:
+    st.session_state.confirm_duplicate = False
 
 reset_key = st.session_state.form_reset_counter
 
@@ -20,9 +21,14 @@ reset_key = st.session_state.form_reset_counter
 st.subheader("Add a new student")
 
 name = st.text_input("Student name", key=f"name_{reset_key}")
-capture_mode = st.radio("How do you want to add photos?", ["Webcam", "Upload photo(s)"], horizontal=True, key=f"capture_mode_{reset_key}")
+capture_mode = st.radio(
+    "How do you want to add photos?", ["Webcam", "Upload photo(s)"],
+    horizontal=True, key=f"capture_mode_{reset_key}"
+)
 
-captured = []  # list of (crop, embedding) pairs collected this session
+st.caption("💡 2–3 photos from slightly different angles recommended for best recognition accuracy.")
+
+captured = []
 
 if capture_mode == "Webcam":
     img_file = st.camera_input("Take a photo", key=f"camera_{reset_key}")
@@ -42,13 +48,14 @@ if capture_mode == "Webcam":
 
 else:
     uploaded = st.file_uploader(
-        "Upload one or more clear photos", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=f"upload_{reset_key}"
+        "Upload one or more clear photos", type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True, key=f"upload_{reset_key}"
     )
     if uploaded:
         cols = st.columns(min(len(uploaded), 4))
         for i, f in enumerate(uploaded):
             file_bytes = np.frombuffer(f.getvalue(), dtype=np.uint8)
-            frame = cv2.imdecode(file_bytes, dtype=np.uint8) if False else cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             results = get_face_crop_and_embedding(face_app, rec_model, rec_output, frame)
 
             with cols[i % 4]:
@@ -60,15 +67,36 @@ else:
                     st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), width=120,
                               caption=f"{f.name} ✗ ({len(results)} faces)")
 
+# ---------- photo count guidance ----------
 if captured:
-    st.success(f"{len(captured)} valid face photo(s) ready to save")
+    if len(captured) == 1:
+        st.warning(f"1 photo captured — add 1–2 more for better accuracy, or save anyway.")
+    elif len(captured) < 3:
+        st.info(f"{len(captured)} photos captured — good, could add one more for best results.")
+    else:
+        st.success(f"{len(captured)} photos captured — great coverage.")
 
-if st.button("Save Student", type="primary", disabled=(not name or not captured)):
+# ---------- duplicate name check ----------
+existing_names = [r[0] for r in conn.execute("SELECT name FROM students").fetchall()]
+is_duplicate = name.strip() and name.strip().lower() in [n.lower() for n in existing_names]
+
+if is_duplicate and not st.session_state.confirm_duplicate:
+    st.warning(f"A student named **{name}** is already registered. Registering again will create a separate entry.")
+    if st.button("Register anyway as a new student"):
+        st.session_state.confirm_duplicate = True
+        st.rerun()
+    save_disabled = True
+else:
+    save_disabled = not name or not captured
+
+if st.button("Save Student", type="primary", disabled=save_disabled):
     student_id = add_student(conn, name)
     for crop, embedding in captured:
         add_image(conn, student_id, crop, embedding)
     st.success(f"Registered {name} with {len(captured)} photo(s)")
-    st.session_state.form_reset_counter += 1   # <-- this line was missing
+
+    st.session_state.form_reset_counter += 1
+    st.session_state.confirm_duplicate = False
     st.rerun()
 
 st.divider()
