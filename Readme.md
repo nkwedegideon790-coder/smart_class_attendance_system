@@ -189,10 +189,6 @@ This keeps the workflow simple and local while preserving enough data for attend
 
 Potential enhancements include:
 
-- Real-time webcam attendance capture
-- Better false-positive filtering for unknown faces
-- Admin login and role-based access
-- Exporting attendance records as CSV or Excel
 - Better UI refinements and detailed reporting
 - Support for multi-classroom management
 
