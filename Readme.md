@@ -91,7 +91,7 @@ source .venv/bin/activate
 3. Install the required dependencies:
 
 ```bash
-pip install streamlit opencv-python numpy insightface openvino supervision
+pip install -r requirements.txt
 ```
 
 If you are using a different environment, install the packages from your preferred Python packaging setup as needed.

@@ -3,9 +3,8 @@ import cv2
 import numpy as np
 import streamlit as st
 
-@st.cache_resource
 def init_db(db_path="attendance.db"):
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn = sqlite3.connect(db_path, check_same_thread=False,timeout=10)
     conn.execute("PRAGMA foreign_keys = ON")
 
     conn.execute("""

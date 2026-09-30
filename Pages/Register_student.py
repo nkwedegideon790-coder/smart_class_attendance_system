@@ -2,12 +2,11 @@ import streamlit as st
 import cv2
 import numpy as np
 from models import load_models, get_face_crop_and_embedding
-from Database import init_db, add_student, add_image, get_all_students_for_matching
+from Database import init_db, add_student, add_image
 
-st.set_page_config(page_title="Register Students", layout="wide")
 st.title("Register Students")
 
-face_app, rec_model, rec_output = load_models()
+face_app = load_models()
 conn = init_db()
 
 if "form_reset_counter" not in st.session_state:
@@ -16,6 +15,15 @@ if "confirm_duplicate" not in st.session_state:
     st.session_state.confirm_duplicate = False
 
 reset_key = st.session_state.form_reset_counter
+
+
+def make_square(img: np.ndarray, size: int = 120) -> np.ndarray:
+    h, w = img.shape[:2]
+    min_dim = min(h, w)
+    top = (h - min_dim) // 2
+    left = (w - min_dim) // 2
+    return cv2.resize(img[top:top + min_dim, left:left + min_dim], (size, size))
+
 
 # ---------- Add new student ----------
 st.subheader("Add a new student")
@@ -28,14 +36,14 @@ capture_mode = st.radio(
 
 st.caption("💡 2–3 photos from slightly different angles recommended for best recognition accuracy.")
 
-captured = []
+captured = []  # list of (crop, embedding) pairs collected this run
 
 if capture_mode == "Webcam":
     img_file = st.camera_input("Take a photo", key=f"camera_{reset_key}")
     if img_file is not None:
         file_bytes = np.frombuffer(img_file.getvalue(), dtype=np.uint8)
         frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        results = get_face_crop_and_embedding(face_app, rec_model, rec_output, frame)
+        results = get_face_crop_and_embedding(face_app, frame)
 
         if len(results) == 0:
             st.warning("No face detected — try again with better lighting.")
@@ -44,7 +52,7 @@ if capture_mode == "Webcam":
         else:
             crop, embedding = results[0]
             captured.append((crop, embedding))
-            st.image(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB), width=150, caption="Captured")
+            st.image(cv2.cvtColor(make_square(crop), cv2.COLOR_BGR2RGB), width=150, caption="Captured")
 
 else:
     uploaded = st.file_uploader(
@@ -52,25 +60,26 @@ else:
         accept_multiple_files=True, key=f"upload_{reset_key}"
     )
     if uploaded:
-        cols = st.columns(min(len(uploaded), 4))
+        cols = st.columns(min(len(uploaded), 4), gap="medium")
         for i, f in enumerate(uploaded):
             file_bytes = np.frombuffer(f.getvalue(), dtype=np.uint8)
             frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            results = get_face_crop_and_embedding(face_app, rec_model, rec_output, frame)
+            results = get_face_crop_and_embedding(face_app, frame)
 
             with cols[i % 4]:
                 if len(results) == 1:
                     crop, embedding = results[0]
                     captured.append((crop, embedding))
-                    st.image(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB), width=120, caption=f"{f.name} ✓")
+                    st.image(cv2.cvtColor(make_square(crop), cv2.COLOR_BGR2RGB),
+                              width=120, caption=f"{f.name} ✓")
                 else:
-                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), width=120,
-                              caption=f"{f.name} ✗ ({len(results)} faces)")
+                    st.image(cv2.cvtColor(make_square(frame), cv2.COLOR_BGR2RGB),
+                              width=120, caption=f"{f.name} ✗ ({len(results)} faces)")
 
 # ---------- photo count guidance ----------
 if captured:
     if len(captured) == 1:
-        st.warning(f"1 photo captured — add 1–2 more for better accuracy, or save anyway.")
+        st.warning("1 photo captured — add 1-2 more for better accuracy, or save anyway.")
     elif len(captured) < 3:
         st.info(f"{len(captured)} photos captured — good, could add one more for best results.")
     else:
@@ -118,12 +127,12 @@ else:
     cols_per_row = 4
     for i in range(0, len(rows), cols_per_row):
         row_chunk = rows[i:i + cols_per_row]
-        cols = st.columns(cols_per_row)
+        cols = st.columns(cols_per_row, gap="medium")
         for col, (student_id, sname, photo_count, sample_image) in zip(cols, row_chunk):
             with col:
                 if sample_image is not None:
                     img = cv2.imdecode(np.frombuffer(sample_image, dtype=np.uint8), cv2.IMREAD_COLOR)
-                    st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), width=120)
+                    st.image(cv2.cvtColor(make_square(img), cv2.COLOR_BGR2RGB), width=120)
                 st.write(f"**{sname}**")
                 st.caption(f"{photo_count} photo(s)")
                 if st.button("Delete", key=f"del_{student_id}"):
