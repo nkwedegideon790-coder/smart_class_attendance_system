@@ -2,7 +2,7 @@ import streamlit as st
 import cv2
 import numpy as np
 from models import load_models, get_face_crop_and_embedding
-from Database import init_db, add_student, add_image
+from database import init_db, add_student, add_image
 
 st.title("Register Students")
 

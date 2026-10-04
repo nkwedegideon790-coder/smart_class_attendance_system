@@ -7,7 +7,7 @@ import streamlit as st
 import supervision as sv
 
 from models import load_models, get_embedding_ov
-from Database import init_db, get_all_students_for_matching
+from database import init_db, get_all_students_for_matching
 from analytics import (
     get_attendance_summary, get_attendance_rate_by_student,
     get_frequent_absentees, get_attendance_trend,
@@ -36,6 +36,10 @@ if "processed_file" not in st.session_state:
 def match_student(embedding, known_students, threshold=THRESHOLD):
     best_match, best_score = None, -1
     for student_id, name, known_emb in known_students:
+        # guard against stale/incompatible embeddings (e.g. from a dropped
+        # OpenVINO pipeline) causing a shape mismatch that crashes np.dot
+        if known_emb is None or known_emb.shape != embedding.shape:
+            continue
         score = np.dot(embedding, known_emb)
         if score > best_score:
             best_match, best_score = (student_id, name), score
@@ -110,7 +114,7 @@ if uploaded_file is not None:
             if frame_count % FRAME_SKIP != 0:
                 continue
 
-            faces = face_app.get(frame)  # each face already has .bbox, .det_score, .embedding
+            faces = face_app.get(frame)  # each face has .bbox, .det_score, .embedding
 
             if len(faces) > 0:
                 xyxy = np.array([f.bbox for f in faces], dtype=float)
@@ -122,9 +126,6 @@ if uploaded_file is not None:
 
             tracked = tracker.update_with_detections(detections)
 
-            # tracker.update_with_detections reorders/filters detections, so match
-            # each tracked box back to its source face by nearest bbox rather than
-            # assuming index alignment with `faces`
             for i in range(len(tracked)):
                 x1, y1, x2, y2 = tracked.xyxy[i].astype(int)
                 x1, y1 = max(0, x1), max(0, y1)
@@ -137,7 +138,8 @@ if uploaded_file is not None:
                 if track_id in track_to_student:
                     student_id, name = track_to_student[track_id]
                 else:
-                    # find the source face whose bbox matches this tracked box
+                    # tracker may reorder/drop detections, so match each tracked
+                    # box back to its source face by closest bbox
                     tracked_box = tracked.xyxy[i]
                     matched_face = min(
                         faces,

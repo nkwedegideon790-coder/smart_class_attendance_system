@@ -1,10 +1,9 @@
 import sqlite3
 import cv2
 import numpy as np
-import streamlit as st
 
 def init_db(db_path="attendance.db"):
-    conn = sqlite3.connect(db_path, check_same_thread=False,timeout=10)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
 
     conn.execute("""
@@ -75,4 +74,3 @@ def get_all_students_for_matching(conn):
         avg = avg / np.linalg.norm(avg)
         matching_set.append((student_id, name, avg))
     return matching_set
-
